@@ -66,10 +66,21 @@ Each entry in `TARGETS` must have:
 - `"event_date"` — approximate event date in `YYYY-MM-DD` format
 - `"date_tolerance_days"` *(optional, default `60`)* — search window in days (±N days around the event date)
 
+Three more optional keys handle old or heavily cross-referenced disasters, where a country+date match
+alone isn't enough — see `MODIFICATIONS.md` for the cases that motivated each one:
+- `"name_contains"` — only scrape disasters whose name contains this substring; a country+date window can
+  return several unrelated disasters (e.g. two different cyclones weeks apart).
+- `"time_window"` *(int weeks, or `"all"`)* — per-target override of `TIME_WINDOW` below, so an old event
+  doesn't pull in reports published years later that merely cite it in passing.
+- `"oldest_first"` *(bool, default `False`)* — once a disaster exceeds `MAX_REPORTS`, sort by earliest report
+  first instead of latest, to keep initial-response reporting rather than recent updates.
+
 ```python
 TARGETS = [
     {"country_iso3": "MOZ", "event_date": "2019-03-14"},
     {"country_iso3": "PHL", "event_date": "2013-11-08", "date_tolerance_days": 30},
+    {"country_iso3": "MOZ", "event_date": "2019-03-14", "name_contains": "Idai",
+     "time_window": 52, "oldest_first": True},
 ]
 ```
 
