@@ -103,6 +103,56 @@ def search_disasters(
     return disasters
 
 
+def search_disasters_by_country_and_date(
+    country_iso3: str,
+    event_date: str,
+    date_tolerance_days: int = 60,
+    limit: int = 1000,
+) -> list[dict]:
+    """
+    Fetch ReliefWeb disasters associated with a country within ±date_tolerance_days
+    of event_date (YYYY-MM-DD).  Returns a list of raw API 'data' items.
+    """
+    try:
+        event_dt = datetime.strptime(event_date, "%Y-%m-%d")
+    except ValueError:
+        print(f"  [API] Warning: invalid event_date '{event_date}' — skipping")
+        return []
+
+    tolerance = max(1, date_tolerance_days)
+    date_from = (event_dt - timedelta(days=tolerance)).strftime("%Y-%m-%dT00:00:00+00:00")
+    date_to   = (event_dt + timedelta(days=tolerance)).strftime("%Y-%m-%dT23:59:59+00:00")
+
+    payload: dict[str, Any] = {
+        "limit": min(limit, 1000),
+        "profile": "full",
+        "filter": {
+            "operator": "AND",
+            "conditions": [
+                {"field": "country.iso3", "value": country_iso3.upper()},
+                {"field": "date.event",   "value": {"from": date_from, "to": date_to}},
+            ],
+        },
+        "fields": {
+            "include": [
+                "id", "name", "glide", "country", "primary_country",
+                "description", "status", "url", "date", "type",
+            ]
+        },
+        "sort": ["date.event:desc"],
+    }
+
+    data      = _post("disasters", payload)
+    disasters = data.get("data", [])
+    total     = data.get("totalCount", len(disasters))
+    print(f"  [API] {country_iso3} ±{tolerance}d of {event_date}: {len(disasters)} returned (total: {total})")
+
+    if total > 1000:
+        print(f"  [API] Warning: API cap is 1000 — some events may be missing.")
+
+    return disasters
+
+
 # ---------------------------------------------------------------------------
 # Report search
 # ---------------------------------------------------------------------------
@@ -131,38 +181,59 @@ def _language_passes(fields: dict) -> bool:
 def get_disaster_reports(
     disaster_id: int | str,
     disaster_start_date: str | None,
+    country_iso3: str | None = None,
+    time_window: int | str | None = None,
+    oldest_first: bool = False,
 ) -> list[dict]:
     """
     Fetch reports linked to a specific disaster, applying TIME_WINDOW filtering.
 
     disaster_start_date: ISO date string 'YYYY-MM-DD' (or None to skip window filter).
+    country_iso3: when provided, narrows results to that primary country.
+    time_window: per-call override for config.TIME_WINDOW (int weeks, or "all"). When
+    None, falls back to config.TIME_WINDOW. Useful for old events where "all" would also
+    pull in reports published years later that only cite the disaster in passing (e.g. a
+    multi-year regional retrospective), since date.original has no natural upper bound.
+    oldest_first: when True, sorts by date.original ascending instead of the default
+    "latest" preset (newest first). Matters when the disaster has more reports than
+    MAX_REPORTS/the API's 1000-per-request cap: with no pagination, whichever end of the
+    date range is sorted first is the end that actually gets kept, and the other end is
+    silently dropped. Set this when the earliest reports (e.g. initial disaster-response
+    sitreps) matter more than the most recent ones.
     Returns filtered list of raw report items.
     """
+    effective_window = config.TIME_WINDOW if time_window is None else time_window
+
     filter_conditions: list[dict] = [
         {"field": "disaster.id", "value": str(disaster_id)},
     ]
+    if country_iso3:
+        filter_conditions.append(
+            {"field": "primary_country.iso3", "value": country_iso3}
+        )
     if config.EXCLUDE_MAPS:
         filter_conditions.append(
             {"field": "format.name", "value": "Map", "negate": True}
         )
 
     # Date window
-    if isinstance(config.TIME_WINDOW, int) and disaster_start_date:
+    if isinstance(effective_window, int) and disaster_start_date:
         try:
             start_dt   = datetime.strptime(disaster_start_date, "%Y-%m-%d")
-            cutoff_dt  = start_dt + timedelta(weeks=config.TIME_WINDOW)
+            cutoff_dt  = start_dt + timedelta(weeks=effective_window)
             date_from  = start_dt.strftime("%Y-%m-%dT00:00:00+00:00")
             date_to    = cutoff_dt.strftime("%Y-%m-%dT23:59:59+00:00")
             filter_conditions.append(
                 {"field": "date.original", "value": {"from": date_from, "to": date_to}}
             )
-            print(f"    [TIME_WINDOW] {config.TIME_WINDOW} weeks: {disaster_start_date} → {cutoff_dt.date()}")
+            print(f"    [TIME_WINDOW] {effective_window} weeks: {disaster_start_date} → {cutoff_dt.date()}")
         except ValueError:
             print(f"    [TIME_WINDOW] Warning: could not parse date '{disaster_start_date}' — skipping window filter")
 
+    sort_dir = "asc" if oldest_first else "desc"
     payload: dict[str, Any] = {
         "limit": min(config.MAX_REPORTS, 1000),
-        "preset": "latest",
+        "sort": [f"date.original:{sort_dir}"],
         "profile": "full",
         "filter": {"operator": "AND", "conditions": filter_conditions},
         "fields": {
@@ -174,6 +245,9 @@ def get_disaster_reports(
             ]
         },
     }
+    if oldest_first:
+        print(f"    [SORT] oldest_first=True: date.original:asc (whichever {min(config.MAX_REPORTS, 1000)} "
+              f"reports fall earliest in the window are kept if the total exceeds the request cap)")
 
     data    = _post("reports", payload)
     reports = data.get("data", [])

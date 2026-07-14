@@ -2,7 +2,7 @@
 
 An autonomous, end-to-end pipeline that:
 
-1. **Searches** the [ReliefWeb API](https://apidoc.rwlabs.org) for disaster events matching configurable categories and years.
+1. **Searches** the [ReliefWeb API](https://apidoc.rwlabs.org) for disaster events — either by category + year grid, or by explicit country + date targets.
 2. **Downloads** all associated PDF reports.
 3. **Parses** each PDF into clean, structured JSON.
 4. **Saves** the zip with the compressed files for memory optimization
@@ -42,10 +42,43 @@ python main.py
 
 ## Configuration (`config.py`)
 
+### Search modes
+
+The pipeline supports two search modes that can run together in the same execution.
+
+**Mode 1 — Category / year grid** (existing)
+
 | Setting | Type | Description |
 |---|---|---|
 | `CATEGORIES` | `list[str]` | ReliefWeb disaster type names, e.g. `["Flood", "Earthquake"]` |
 | `YEARS` | `list[int]` | Calendar years to query, e.g. `[2022, 2023]` |
+
+Every `(category, year)` pair is queried; results are stored under `Results/<Category>/<Year>/`.
+
+**Mode 2 — Explicit country + date targets** (new)
+
+| Setting | Type | Description |
+|---|---|---|
+| `TARGETS` | `list[dict]` | Explicit country + date entries (see below) |
+
+Each entry in `TARGETS` must have:
+- `"country_iso3"` — ISO 3166-1 alpha-3 country code (e.g. `"MOZ"`, `"PHL"`)
+- `"event_date"` — approximate event date in `YYYY-MM-DD` format
+- `"date_tolerance_days"` *(optional, default `60`)* — search window in days (±N days around the event date)
+
+```python
+TARGETS = [
+    {"country_iso3": "MOZ", "event_date": "2019-03-14"},
+    {"country_iso3": "PHL", "event_date": "2013-11-08", "date_tolerance_days": 30},
+]
+```
+
+Results are stored under `Results/<DisasterType>/<Year>/` (disaster type and year are derived automatically from the API response). If the same disaster is found by both modes in the same run, the scraper's idempotent skip-if-exists guard prevents double-processing.
+
+### Report collection settings
+
+| Setting | Type | Description |
+|---|---|---|
 | `TIME_WINDOW` | `int` or `"all"` | Weeks from disaster start date to collect reports (`"all"` = no limit) |
 | `MAX_REPORTS` | `int` | Max reports per event (API hard cap: 1000) |
 | `EXCLUDE_MAPS` | `bool` | Skip map-format reports |
@@ -87,10 +120,17 @@ for every article/report.  Each entry in `articles[]` contains:
 ```
 main.py
   │
-  ├─ api.search_disasters(category, year)
-  │    └─ POST /v2/disasters  (filter: type + date range)
+  ├─ Mode 1: for each (category, year) in CATEGORIES × YEARS
+  │    ├─ api.search_disasters(category, year)
+  │    │    └─ POST /v2/disasters  (filter: type.name + date range)
+  │    └─ for each disaster → scrape → parse → zip  (see below)
   │
-  └─ for each disaster:
+  ├─ Mode 2: for each entry in TARGETS
+  │    ├─ api.search_disasters_by_country_and_date(country_iso3, event_date, ±tolerance)
+  │    │    └─ POST /v2/disasters  (filter: country.iso3 + date.event range)
+  │    └─ for each disaster → scrape → parse → zip  (see below)
+  │
+  └─ shared per-disaster stages:
        │
        ├─ scraper.scrape_event()
        │    ├─ api.get_disaster_reports()   POST /v2/reports

@@ -129,6 +129,9 @@ def scrape_event(
     disaster: dict,
     category: str,
     year: int,
+    country_iso3: str | None = None,
+    time_window: int | str | None = None,
+    oldest_first: bool = False,
 ) -> Path:
     """
     Full scrape pipeline for one disaster event:
@@ -163,7 +166,8 @@ def scrape_event(
     print(f"{'='*70}")
 
     start_dt  = disaster_start_date(disaster)
-    reports   = get_disaster_reports(dis_id, start_dt)
+    reports   = get_disaster_reports(dis_id, start_dt, country_iso3=country_iso3, time_window=time_window,
+                                      oldest_first=oldest_first)
 
     # Download PDFs and enrich reports
     enriched  = download_reports_pdfs(reports, pdf_dir)
