@@ -1,18 +1,22 @@
-# Local Modifications
+# Modifications vs. upstream
 
-*Uncommitted changes in this working tree, relative to `origin/main`. These are what actually
-produced the Hurricane Melissa scrape (`Results/Flood/2025/Hurricane_Melissa_-_Oct_2025/`,
-run 2026-04-30) — the upstream `main` branch as committed cannot do this run, because it only
-supports the category/year grid search, and Melissa cannot reliably be found that way (it is
-filed under ReliefWeb category "Flood", not "Tropical Cyclone", and under a grid year that
-doesn't obviously match its Oct 2025 date). `config.py`'s `TARGETS` now also queues Cyclones
-Idai (2019) and Freddy (2023) for the P2 cross-event replication described in
-`EVALUATION_FRAMEWORK.md`. A first attempt at running all three (2026-07-06) surfaced two more
-problems on old events — disaster-search cross-contamination and unbounded report age — both now
-fixed; see "Round 2" below. The Idai/Freddy scrape was aborted mid-run once these were found and
-has not been redone yet with the fix.*
+*Changes in this repo relative to `upstream/main` ([idecost/Scraping-Reliefweb](https://github.com/idecost/Scraping-Reliefweb),
+the repo this was forked from). This repo, [nautim/Scraping-Reliefweb](https://github.com/nautim/Scraping-Reliefweb),
+is a GitHub fork carrying these changes as a committed, pushed history (commit `905bc94`,
+2026-07-14) — they are no longer only local/uncommitted. `git remote -v` shows `origin` →
+this fork, `upstream` → idecost's original.*
 
-Files touched: `config.py`, `api.py`, `main.py`, `scraper.py`, `README.md`.
+*These changes are what actually produced the Hurricane Melissa scrape
+(`Results/Flood/2025/Hurricane_Melissa_-_Oct_2025.zip`) — upstream `main` as committed cannot do
+this run, because it only supports the category/year grid search, and Melissa cannot reliably be
+found that way (it is filed under ReliefWeb category "Flood", not "Tropical Cyclone", and under a
+grid year that doesn't obviously match its Oct 2025 date). `config.py`'s `TARGETS` also queues
+Cyclones Idai (2019) and Freddy (2023) for the P2 cross-event replication described in
+`EVALUATION_FRAMEWORK.md` (in the sibling `reliefweb_temporality_vulnerability` repo) — all three
+have been scraped; see "Results" below for corpus stats and the Idai truncation/oldest-first
+fixes in "Round 2" and "Round 3".*
+
+Files touched: `config.py`, `api.py`, `main.py`, `scraper.py`, `README.md`, `.gitignore`.
 
 ---
 
@@ -310,9 +314,13 @@ retrospectives/updates that already restate earlier figures.
   `offset` until a request returns fewer than `limit`), which has not been implemented. If full
   coverage is needed rather than "the earliest 1,000," that's the next step.
 - The `Results/Flash_Flood/2019/Tropical_Cyclone_Idai_-_Mar_2019.zip` from the "Round 2" run above
-  still reflects the **old** newest-first order and needs a re-scrape to pick up this fix — the
-  zip-and-cleanup step deletes the unzipped working folder each run, so `scrape_event()`'s
-  skip-if-exists guard won't fire and a plain re-run of `main.py` will redo all three targets from
-  scratch (not just Idai).
+  reflected the **old** newest-first order; a scoped, `TARGETS`-trimmed-to-Idai-only re-scrape
+  (2026-07-14) fixed it — the new zip spans **2019-03-08 → 2019-06-04** (landfall + ~3 months of
+  response) instead of 2019-04-12 → 2020-02-29. The zip-and-cleanup step deletes the unzipped
+  working folder each run, so `scrape_event()`'s skip-if-exists guard never fires and a plain
+  `main.py` run always redoes every target in `TARGETS` from scratch — which is why Melissa and
+  Freddy were temporarily commented out of `TARGETS` for this one, rather than re-scraping all
+  three again just to fix Idai's sort order.
 
-None of this is committed to `origin/main` — it exists only in this local working tree.
+All of the above is now committed and pushed to `origin` (this fork), not just local/uncommitted
+— see the file header for the commit hash.
